@@ -1,0 +1,7 @@
+{
+  "id": "resourceprices",
+  "name": "Resource Prices", 
+  "author": "Aidanamite", 
+  "description": "Sets all the unset resource exchange prices so the Item Shop will display them all", 
+  "version":  "1.0.0" 
+}

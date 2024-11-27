@@ -14,6 +14,8 @@ using System.Linq;
 using UnityEngine.UI;
 using Console = SRML.Console.Console;
 using Object = UnityEngine.Object;
+using System.Collections;
+using SRML.Config.Attributes;
 
 namespace ItemShop
 {
@@ -23,7 +25,7 @@ namespace ItemShop
         internal static string modName = $"{modAssembly.GetName().Name}";
         internal static string modDir = $"{Environment.CurrentDirectory}\\SRML\\Mods\\{modName}";
         internal static Vector3 shopSpawnPos = new Vector3(79.4f, 12.3f, -100);
-        internal static Vector3 shopSpawnRot = Vector3.up * 90;
+        internal static Vector3 shopSpawnRot = Vector3.up * 82;
         internal static CorralUI uiPrefab;
         internal static bool sceneStarted = false;
         internal static CompoundDataPiece pendingData;
@@ -121,6 +123,15 @@ namespace ItemShop
         public static void LogWarning(string message) => Console.LogWarning($"[{modName}]: " + message);
         public static void LogSuccess(string message) => Console.LogSuccess($"[{modName}]: " + message);
     }
+
+    [ConfigFile("settings")]
+    public static class Config
+    {
+        public static double SpawnDelay = 0.1;
+        public static float ScaleTime = 0.5f;
+        public static float LaunchForce = 50;
+    }
+
     static class ExtentionMethods
     {
         public static List<Y> GetAll<X, Y>(this IEnumerable<X> os, Func<X, IEnumerable<Y>> collector, bool ignoreDuplicates = true)
@@ -167,6 +178,18 @@ namespace ItemShop
             if (!c.Contains(i))
                 c.Add(i);
         }
+        public static IEnumerator ScaleTo(this Transform t, Vector3 target, float time)
+        {
+            var start = t.localScale;
+            var passed = 0f;
+            while (passed < time)
+            {
+                passed += Time.deltaTime;
+                t.localScale = Vector3.Lerp(start, target, passed / time);
+                yield return null;
+            }
+            yield break;
+        }
     }
 
     public class IdentifiableData
@@ -180,7 +203,7 @@ namespace ItemShop
         PurchaseUI active;
         public List<Identifiable.Id> spawnCue = new List<Identifiable.Id>();
         internal double lastSpawn;
-        double spawnDelay = 0.5 * TimeDirector.SECS_PER_DAY / SceneContext.Instance.TimeDirector.secsPerGameDay;
+        double spawnDelay => Config.SpawnDelay * TimeDirector.SECS_PER_DAY / SceneContext.Instance.TimeDirector.secsPerGameDay;
 
         public override GameObject Activate() => CreateUI();
 
@@ -198,10 +221,8 @@ namespace ItemShop
                 if (Identifiable.IsSlime(s) && Enum.TryParse(s.ToString().Replace("_SLIME","_PLORT"),out s))
                     AddEntry(GetIdentifiableData(s), list, dictionary);
             }
-            PurchasePatchDisabler.Disable = true;
             GameObject gameObject = null;
-            gameObject = GameContext.Instance.UITemplates.CreatePurchaseUI(SceneContext.Instance.ExchangeDirector.GetSpecRewardIcon(ExchangeDirector.NonIdentReward.NEWBUCKS_LARGE), MessageUtil.Qualify("ui", "t.item_shop"), list.ToArray(), false, () => Object.Destroy(gameObject), false);
-            PurchasePatchDisabler.Disable = false;
+            gameObject = GameContext.Instance.UITemplates.CreatePurchaseUI(SceneContext.Instance.ExchangeDirector.GetSpecRewardIcon(ExchangeDirector.NonIdentReward.NEWBUCKS_LARGE), MessageUtil.Qualify("ui", "t.item_shop"), list.ToArray(), false, () => Destroy(gameObject), false);
             var categories = new List<PurchaseUI.Category>();
             foreach (var p in dictionary)
                 categories.Add(new PurchaseUI.Category(p.Key, p.Value.ToArray()));
@@ -248,7 +269,14 @@ namespace ItemShop
                     var obj = SRBehaviour.InstantiateActor(prefab,RegionRegistry.RegionSetId.HOME,true);
                     obj.transform.position = ejector.position + ejector.forward * 0.2f;
                     obj.transform.rotation = ejector.rotation;
-                    obj.GetComponent<Rigidbody>()?.AddForce(ejector.forward * 25);
+                    if (Config.LaunchForce > 0)
+                        obj.GetComponent<Rigidbody>()?.AddForce(ejector.forward * Config.LaunchForce);
+                    if (Config.ScaleTime > 0)
+                    {
+                        var scale = obj.transform.localScale;
+                        obj.transform.localScale = Vector3.one * 0.01f;
+                        obj.GetComponent<Identifiable>().StartCoroutine(obj.transform.ScaleTo(scale, Config.ScaleTime));
+                    }
                 }
                 spawnCue.RemoveAt(0);
             }
@@ -373,12 +401,5 @@ namespace ItemShop
                 }
             }
         }
-    }
-
-    [HarmonyPatch(typeof(UITemplatesPurchasablePatch), "Prefix")]
-    class PurchasePatchDisabler
-    {
-        public static bool Disable = false;
-        static bool Prefix() => !Disable;
     }
 }
